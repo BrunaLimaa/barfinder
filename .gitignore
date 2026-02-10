@@ -1,0 +1,22 @@
+# Python compilation
+__pycache__/
+*.pyc
+
+# Distribution / Build
+build/
+dist/
+*.egg-info/
+
+# Environments
+.venv/
+env/
+venv/
+
+# IDE settings
+.vscode/
+.idea/
+
+# Local Data
+*.fits
+*_analysis.png
+*_DEBUG_INPUT.png
