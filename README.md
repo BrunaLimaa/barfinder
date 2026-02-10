@@ -10,7 +10,7 @@
 * **Physical Units:** Converts pixels to Kiloparsecs (kpc) using WCS and LambdaCDM Cosmology.
 * **Visualization:** Exports diagnostic plots of the fitted isophotes and detected bar vectors.
 
-## 📦 Installation
+## Installation
 
 ### Prerequisites
 * Python 3.8+
@@ -32,7 +32,7 @@ pip install -r requirements.txt
 
 ```
 
-## 💻 Usage
+## Usage
 
 The package is designed to be imported and run with a single high-level command.
 
@@ -91,4 +91,5 @@ To enable fair comparisons across different redshifts, `barfinder` calculates th
 **Bruna Lima**
 
 Computer Science Undergraduate, UFRGS
+
 
