@@ -1,11 +1,11 @@
 # barfinder: Automated Galaxy Bar Detection Pipeline
 
-`barfinder` is a Python package designed to automate the detection and measurement of galactic bars in FITS imaging data. It combines photometic isophote fitting with rigorous cosmological calculations to transform raw telescope data into physical scientific measurements.
+`barfinder` is a Python package designed to automate the detection and measurement of galactic bars in FITS imaging data. It combines photometic isophote fitting with cosmological calculations to transform raw telescope data into physical scientific measurements.
 
 ## Features
 
 * **Adaptive Input:** Automatically handles 2D images and 3D IFU data cubes (via spectral collapse).
-* **Isophote Fitting:** fits galaxy light profiles using the standard **Jedrzejewski Algorithm**.
+* **Isophote Fitting:** fits galaxy light profiles using Iterative Ellipse Fitting.
 * **Automated Detection:** Identifies bar length via peak ellipticity, masking the noisy nucleus.
 * **Physical Units:** Converts pixels to Kiloparsecs (kpc) using WCS and LambdaCDM Cosmology.
 * **Visualization:** Exports diagnostic plots of the fitted isophotes and detected bar vectors.
@@ -53,7 +53,7 @@ print(f"Detected Bar Length: {bar_size_kpc:.2f} kpc")
 
 ```
 
-## 📊 Outputs
+## Outputs
 
 For every processed galaxy, `barfinder` generates two artifacts in the working directory:
 
@@ -65,7 +65,7 @@ For every processed galaxy, `barfinder` generates two artifacts in the working d
 
 * **`*_DEBUG_INPUT.png`**: A quality control plot showing the raw data (or the collapsed cube) before processing, useful for verifying signal-to-noise ratios.
 
-## 🔬 Methodology
+## Methodology
 
 ### 1. The Algorithm
 
@@ -89,5 +89,6 @@ To enable fair comparisons across different redshifts, `barfinder` calculates th
 ## 👤 Author
 
 **Bruna Lima**
+
 Computer Science Undergraduate, UFRGS
 
