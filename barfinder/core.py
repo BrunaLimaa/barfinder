@@ -1,4 +1,5 @@
 import numpy as np
+import os
 import matplotlib.pyplot as plt
 from astropy.io import fits
 from astropy.visualization import simple_norm
@@ -6,8 +7,68 @@ from astropy.wcs import WCS
 from astropy import wcs
 from astropy.cosmology import LambdaCDM
 import astropy.units as u
+from astropy.visualization import make_lupton_rgb
 from photutils.isophote import EllipseGeometry, Ellipse
 from matplotlib.patches import Ellipse as MplEllipse
+
+
+"""
+Calculates the angular diameter distance locally.
+"""
+def calculate_angular_diameter_distance(redshift):
+    H0 = 70 # constante hubble
+    c = 299792.458 # velocidade
+    D_H = c / H0
+
+    omega_m = 0.30
+    omega_l = 0.70
+
+    def E(z_prime):
+        
+        return np.sqrt(omega_m * (1 + z_prime)**3 + omega_l)
+
+    num_steps = 10000
+
+    dz = redshift / num_steps
+    
+    integral_sum = 0.0
+    current_z = 0.0
+    
+    for _ in range(num_steps):
+        
+        left_height = 1.0 / E(current_z)
+        right_height = 1.0 / E(current_z + dz)
+        
+        slice_area =  ((left_height + right_height) / 2.0 ) * dz
+        
+        integral_sum += slice_area
+        
+        current_z += dz
+        
+    D_C = D_H * integral_sum
+    
+    D_M = D_C
+    
+    D_A = D_M / (1 + redshift)
+    
+    return D_A
+
+
+def load_image_rgb(filename):
+    
+    with fits.open(filename) as hdul:
+        data = hdul[0].data        
+        
+        r, g, b = data[0], data[1], data[2]
+        
+        r = r / np.nanpercentile(r, 99)
+        g = g / np.nanpercentile(g, 99)
+        b = b / np.nanpercentile(b, 99)
+        
+    rgb_img = make_lupton_rgb(r, g, b, stretch=1.5, Q=5, minimum=0.01)
+    
+    return rgb_img
+    
 
 
 """
@@ -38,7 +99,6 @@ Converts pixel length to physical distance in Kpc.
 """
 def calculate_kpc(bar_length_pixels, redshift, wcs_info):
     
-    cosmo = LambdaCDM(H0=70, Om0=0.3, Ode0=0.7)
     
     scales = wcs.utils.proj_plane_pixel_scales(wcs_info)
     deg_per_pixel = scales[0]
@@ -46,8 +106,9 @@ def calculate_kpc(bar_length_pixels, redshift, wcs_info):
     bar_size_deg = bar_length_pixels * deg_per_pixel
     bar_size_rad = np.deg2rad(bar_size_deg)
     
-    distance_mpc = cosmo.angular_diameter_distance(redshift)
-    distance_kpc = distance_mpc.to(u.kpc).value
+    distance_mpc = calculate_angular_diameter_distance(redshift)
+    
+    distance_kpc = distance_mpc * 1000.0
     
     return bar_size_rad * distance_kpc
 
@@ -80,46 +141,59 @@ def find_bar_geometry(image_data):
 Creates the plot with the galaxy + red ellipse + size label.
 Saves it to a file.
 """
-def generate_plot(image_data, isolist, bar_radius_pixels, kpc_size, filename_out):
-    good_mask = ~np.logical_or(np.isnan(image_data), image_data <= 0)
-    norm = simple_norm(image_data[good_mask], stretch='log', percent=98.5)
+def generate_plot(image_data, isolist, bar_radius_pixels, kpc_size, filename_out, wcs_info=None):
     
     fig, ax = plt.subplots(figsize=(10, 10))
-    im = ax.imshow(image_data, cmap='gray_r', origin='lower', norm=norm)
+    
+    ax.imshow(image_data, origin='lower')
+    
+    h, w = image_data.shape[:2]
+    
+    zoom_radius = int(bar_radius_pixels * 1.7) if bar_radius_pixels > 0 else int(w * 0.25)
+    
+    cx, cy = w // 2, h // 2
+    
+    x_min = max(0, cx - zoom_radius)
+    x_max = min(w, cx + zoom_radius)
+    y_min = max(0, cy - zoom_radius)
+    y_max = min(h, cy + zoom_radius)
+    
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)    
     
     for iso in isolist:
-        if iso.sma < 3: continue 
+        
+        sma = float(iso.sma)
+        if sma < 3: continue 
 
-        is_bar = np.isclose(iso.sma, bar_radius_pixels, atol=0.5)
+        is_bar = np.isclose(sma, bar_radius_pixels, atol=0.5)
         
-        color = 'red' if is_bar else 'blue'
-        alpha = 1.0 if is_bar else 0.3
-        linewidth = 2.5 if is_bar else 1.0
+        x0 = float(iso.x0)
+        y0 = float(iso.y0)
+        pa = float(iso.pa)
+        eps = float(iso.eps)
         
-        angle_deg = np.degrees(iso.pa)
-        smi = iso.sma * (1 - iso.eps)
+        smi = sma * (1 - eps)
         
-        e = MplEllipse(xy=(iso.x0, iso.y0),
-                       width=2*iso.sma,
+        e = MplEllipse(xy=(x0, y0),
+                       width=2*sma,
                        height=2*smi,
-                       angle=angle_deg,
-                       edgecolor=color,
+                       angle=np.degrees(pa),
+                       edgecolor='red' if is_bar else 'cyan',
                        facecolor='none',
-                       linewidth=linewidth,
-                       alpha=alpha)
+                       linewidth=2.5 if is_bar else 1.0,
+                       alpha=1.0 if is_bar else 0.3)
         ax.add_patch(e)
     
-    length_px = bar_radius_pixels * 2
-    info_text = f"Bar Length: {kpc_size:.2f} kpc\n({length_px:.1f} pixels)"
-    ax.text(0.02, 0.98, info_text, transform=ax.transAxes, color='red', 
-            fontsize=12, verticalalignment='top', fontweight='bold',
-            bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
+    length_bar = 2 * bar_radius_pixels
+    info_text = f"Bar Length: {kpc_size:.2f} kpc\n({length_bar:.1f} pixels)"
+    ax.text(0.05, 0.95, info_text, transform=ax.transAxes, color='red', 
+            fontsize=16, va='top', ha='left',
+            bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', boxstyle='square,pad=0.8'))
     
-    plt.title(f"Analysis: {filename_out}")
-    
-    plt.savefig(filename_out, dpi=150)
-    plt.close() 
-    print(f"Plot saved to: {filename_out}")
+    plt.title(f"Analysis: {os.path.basename(filename_out)}")
+    plt.savefig(filename_out, dpi=150, bbox_inches='tight')
+    plt.close(fig)
 
 
 """
@@ -127,19 +201,80 @@ Runs full pipeline.
 """
 def run_pipeline(filename, redshift):
     
-    img, wcs = load_and_process(filename)
+    img_2d, wcs_info = load_and_process(filename)
     
-    isolist, radius_px = find_bar_geometry(img)
+    isolist, radius_px = find_bar_geometry(img_2d)
     
-    save_debug_image(img, filename)
+    img_rgb = load_image_rgb(filename)
+    
+    
+    save_debug_image(img_rgb, filename)
     
     length_px = radius_px * 2
-    size_kpc = calculate_kpc(length_px, redshift, wcs)
+    size_kpc = calculate_kpc(length_px, redshift, wcs_info)
+
+    output_name_all = filename.replace(".fits", "_analysis_all.png")
+    output_name_bar = filename.replace(".fits", "_analysis_bar_only.png")
     
-    output_name = filename.replace(".fits", "_analysis.png")
-    generate_plot(img, isolist, radius_px, size_kpc, output_name)
+    generate_plot(img_rgb, isolist, radius_px, size_kpc, output_name_all)
+    
+    generate_bar_plot(img_rgb, isolist, radius_px, size_kpc, output_name_bar)
     
     return size_kpc
+
+
+
+"""
+Creates a focused plot with ONLY the galaxy + the chosen red ellipse + size label.
+Zooms in tightly on the bar.
+"""
+def generate_bar_plot(image_data, isolist, bar_radius_pixels, kpc_size, filename_out, wcs_info=None):
+    
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.imshow(image_data, origin='lower')
+    
+    h, w = image_data.shape[:2]
+    
+    zoom_radius = int(bar_radius_pixels * 1.5) if bar_radius_pixels > 0 else int(w * 0.15)
+    cx, cy = w // 2, h // 2
+    
+    x_min = max(0, cx - zoom_radius)
+    x_max = min(w, cx + zoom_radius)
+    y_min = max(0, cy - zoom_radius)
+    y_max = min(h, cy + zoom_radius)
+    
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
+
+    for iso in isolist:
+        sma = float(iso.sma)
+        
+        if np.isclose(sma, bar_radius_pixels, atol=0.5):
+            x0 = float(iso.x0)
+            y0 = float(iso.y0)
+            pa = float(iso.pa)
+            eps = float(iso.eps)
+            smi = sma * (1 - eps)
+            
+            e = MplEllipse(xy=(x0, y0),
+                           width=2*sma,
+                           height=2*smi,
+                           angle=np.degrees(pa),
+                           edgecolor='red',
+                           facecolor='none',
+                           linewidth=3.0) 
+            ax.add_patch(e)
+            break 
+    
+    info_text = f"Bar Length: {kpc_size:.2f} kpc"
+    ax.text(0.05, 0.95, info_text, transform=ax.transAxes, color='red', 
+            fontsize=14, fontweight='bold', va='top', ha='left',
+            bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
+    
+    plt.title(f"Analysis (Bar Only): {os.path.basename(filename_out)}")
+    plt.savefig(filename_out, dpi=150, bbox_inches='tight', facecolor='black')
+    plt.close(fig)
+
 
 
 """
@@ -150,19 +285,12 @@ def save_debug_image(image_data, filename_original):
     
     fig, ax = plt.subplots(figsize=(8, 8))
     
-    good_mask = ~np.logical_or(np.isnan(image_data), image_data <= 0)
-    norm = simple_norm(image_data[good_mask], stretch='log', percent=98.5) if np.any(good_mask) else None
+    im = ax.imshow(image_data, origin='lower')
     
-    im = ax.imshow(image_data, cmap='gray_r', origin='lower', norm=norm)
+    ax.set_title(f"RGB INPUT CHECK:", fontsize=10)
     
-    cbar = fig.colorbar(im, ax=ax, fraction=0.045, pad=0.04)
-    cbar.set_label('Flux (Log Scale)', fontsize=8)
-    
-    ax.set_title(f"INPUT DATA CHECK:\n{filename_original}", fontsize=14, fontweight='bold')
-    ax.set_xlabel("Pixels", fontsize=12)
-    ax.set_ylabel("Pixels", fontsize=12)
-
     debug_name = filename_original.replace(".fits", "_DEBUG_INPUT.png")
-    plt.savefig(debug_name, dpi=150, bbox_inches='tight') # bbox_inches='tight' cuts extra whitespace
+    plt.savefig(debug_name, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"Debug image saved to: {debug_name}")
+    

@@ -20,3 +20,4 @@ venv/
 *.fits
 *_analysis.png
 *_DEBUG_INPUT.png
+*.csv
